@@ -30,15 +30,20 @@
   <form method="post">
     {% csrf_token %}
     <div class="form-group">
-      <label >用户名</label>
+      <label>用户名</label>
       {{ form.username }}
       <span>{{ form.username.errors.0 }}</span>
 
     </div>
     <div class="form-group">
-      <label  >密码</label>
+      <label>密码</label>
       {{ form.password }}
       <span>{{ form.password.errors.0 }}</span>
+    </div>
+     <div class="form-group">
+      <label>验证码</label>
+      {{ form.captcha }}
+      <span>{{ form.captcha.errors.0 }}</span>
     </div>
     <input type="submit" value="登录" class="account">
   </form>

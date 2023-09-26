@@ -1,9 +1,19 @@
+from random import random
+
+from PIL.Image import Image
+from PIL.ImageDraw import ImageDraw
+from PIL.ImageFont import ImageFont
+from django.contrib.auth.hashers import make_password, check_password
+from django.http import HttpResponseForbidden
 from django.shortcuts import render,redirect,HttpResponse
 from app01 import models
 from django.utils.safestring import mark_safe
 # Create your views here.
 from django import forms
-from django.contrib.auth import logout
+from django.contrib.auth import logout, authenticate
+from app01.models import Admin
+import io
+from captcha.fields import CaptchaField
 def depart_list(request):
     """部门列表"""
 
@@ -17,14 +27,15 @@ def depart_add(request):
     if request.method =="GET":
         return render(request,'depart_add.html')
 
-    #获取用户POST提交过来的数据
-    title = request.POST.get("title")
+    if request.method == 'POST':
+        #获取用户POST提交过来的数据
+        title = request.POST.get("title")
 
-    #保存到数据库
-    models.Department.objects.create(title=title)
+        #保存到数据库
+        models.Department.objects.create(title=title)
 
-    #重定向回部门列表
-    return redirect("/depart/list/")
+        #重定向回部门列表
+        return redirect("/depart/list/")
 
 def depart_delete(request):
     """删除部门"""
@@ -257,24 +268,116 @@ class LoginForm(forms.Form):
         required=True
 
     )
-def login(request):
-    """用户登录"""
-    if request.method == "GET":
-        form = LoginForm()
-        return render(request,'login.html',{'form':form})
 
-    form = LoginForm(data=request.POST)
-    if form.is_valid():
-        admin_object = models.Admin.objects.filter(**form.cleaned_data).first()
-        if not admin_object:
-            form.add_error("password","用户名或密码错误")
-            return render(request,'login.html',{'form':form})
-        request.session["info"] = {'id':admin_object.id,'name':admin_object.username}
-        return redirect("/pretty/list/")
+    captcha = CaptchaField()
+
+# def generate_captcha(self, size=(200, 100), font_size=50):
+#     # 生成随机验证码字符串
+#     code = ''.join(random.choice('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ') for _ in range(4))
+#
+#     # 创建一个空白图片
+#     image = Image.new('RGB', size, 'white')
+#     draw = ImageDraw.Draw(image)
+#
+#     # 加载字体
+#     font = ImageFont.truetype("arial.ttf", font_size)
+#
+#     # 在图片上绘制验证码
+#     draw.text((10, 30), code, fill='black', font=font)
+#
+#     # 创建一个BytesIO对象，用于保存图片数据
+#     image_data = io.BytesIO()
+#     image.save(image_data, 'PNG')
+#
+#     return image_data.getvalue(), code
+
+
+
+def login(request):
+    if request.method == 'GET':
+        form = LoginForm()
+        # # 生成验证码图片
+        # image, code = generate_captcha()
+        #
+        # # 将验证码保存到session中，用于验证用户输入
+        # request.session['captcha_code'] = code
+        return render(request,'login.html',{'form':form})
+    if request.method == 'POST':
+        form = LoginForm(request.POST)
+        if form.is_valid():
+            username=request.POST.get('username')
+            password=request.POST.get('password')
+
+            admin=Admin.objects.filter(username=username).first()
+            if admin:
+                if check_password(password,admin.password):
+                    return redirect('/pretty/list/')
+            else:
+                form.add_error('username','用户名或密码错误')
+                return render(request,'login.html',{'form':form})
+
     return render(request,'login.html',{'form':form})
+# def login(request):
+#     """用户登录"""
+#     if request.method == "GET":
+#         form = LoginForm()
+#         return render(request,'login.html',{'form':form})
+#
+#     form = LoginForm(data=request.POST)
+#     if form.is_valid():
+#         """form.cleaned_data属性来获取有效的、经过清理后的表单数据。 form.cleaned_data返回一个包含字段名和对应值的字典，其中键是表单类中定义的字段，在键中都是经过验证和清理后的有效数据。"""
+#         admin_object = models.Admin.objects.filter(**form.cleaned_data).first()
+#         if not admin_object:
+#             form.add_error("password","用户名或密码错误")
+#             return render(request,'login.html',{'form':form})
+#         request.session["info"] = {'id':admin_object.id,'name':admin_object.username}
+#         return redirect("/pretty/list/")
+#     return render(request,'login.html',{'form':form})
 
 def logout_view(request):
 
     """用户注销"""
     logout(request)
     return redirect('/login/')
+
+from django.contrib.auth.forms import UserCreationForm
+class RegistrationForm(forms.ModelForm):
+    username = forms.CharField(label='用户名')
+    password = forms.CharField(label='密码', widget=forms.PasswordInput)
+    confirm_password = forms.CharField(label='重复密码', widget=forms.PasswordInput)
+    class Meta:
+        model = Admin
+        fields = ['username','password']
+
+def register(request):
+    """用户注册"""
+    if request.method =='GET':
+        form = RegistrationForm()
+        return render(request, 'register.html', {'form': form})
+    if request.method == 'POST':
+        form = RegistrationForm(request.POST)
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        confirm_password = request.POST.get('confirm_password')
+        # 检查用户名是否已存在
+        if Admin.objects.filter(username=username).exists():
+            form.add_error('username', '该用户名已经被注册')
+            return render(request, 'register.html', {'form':form})
+
+        if not all([username,password,confirm_password]):
+            return HttpResponseForbidden("缺少必要参数")
+
+        #检查密码是否一致
+        if password != confirm_password:
+            form.add_error('password','密码不一致')
+            return render(request, 'register.html', {'form': form})
+        if form.is_valid():
+            # 处理注册逻辑，例如创建用户
+            hashed_password = make_password(password)
+            user = Admin(username=username,password=hashed_password)
+            user.save()
+            return redirect('http://127.0.0.1:8000/login/')
+
+
+    return render(request,'register.html',{'form':form})
+
